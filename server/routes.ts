@@ -247,11 +247,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check if user is owner or has shared access
       const isOwner = file.ownerId === req.user!.id;
+      const isAdmin = req.user?.role === "admin";
       const sharedFiles = await storage.getSharedFilesByFileId(fileId);
-      const hasSharedAccess = sharedFiles.some(sf => sf.userId === req.user!.id);
+      const sharedFileRecord = sharedFiles.find(sf => sf.userId === req.user!.id);
+      const hasSharedAccess = !!sharedFileRecord;
       
-      if (!isOwner && !hasSharedAccess) {
-        return res.status(403).json({ message: "Access denied" });
+      // Log access attempt for debugging
+      console.log(`Download attempt: fileId=${fileId}, userId=${req.user!.id}, isOwner=${isOwner}, isAdmin=${isAdmin}, hasSharedAccess=${hasSharedAccess}`);
+      
+      if (!isOwner && !hasSharedAccess && !isAdmin) {
+        return res.status(403).json({ message: "Access denied - You don't have permission to download this file" });
+      }
+      
+      // Check if shared access has expired
+      if (!isOwner && !isAdmin && hasSharedAccess && sharedFileRecord?.expiresAt) {
+        const now = new Date();
+        if (now > sharedFileRecord.expiresAt) {
+          return res.status(403).json({ message: "Access denied - Sharing period has expired" });
+        }
       }
       
       // For quantum and dual encryption, check if quantum key exists
@@ -330,9 +343,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Return a more user-friendly error message
       if (error.code === 'ENOENT') {
         return res.status(404).json({ message: "File data not found on server" });
+      } else if (error.message?.includes('permission') || error.message?.includes('access')) {
+        return res.status(403).json({ message: "Permission denied. You don't have access to this file." });
+      } else if (error.message?.includes('decrypt') || error.message?.includes('key')) {
+        return res.status(400).json({ 
+          message: "File decryption failed. The encryption key may have been rotated or is unavailable." 
+        });
+      } else if (error.message?.includes('quantum') || error.message?.includes('kyber')) {
+        return res.status(400).json({ 
+          message: "Quantum key error. Please contact your administrator." 
+        });
       }
       
-      res.status(500).json({ message: "Internal server error during file download" });
+      res.status(500).json({ message: "File download failed. Please try again later." });
     }
   });
 
@@ -434,13 +457,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "File already shared with this user" });
       }
       
-      // Create shared file record
+      // Create shared file record with proper defaults
       const sharedFileData = insertSharedFileSchema.parse({
         fileId,
         userId: parseInt(userId),
-        permission,
+        permission: permission || 'view', // Default to view permission if not specified
         allowReshare: allowReshare === true,
-        expiresAt: expiresAt ? new Date(expiresAt) : undefined
+        expiresAt: expiresAt ? new Date(expiresAt) : null
       });
       
       const sharedFile = await storage.createSharedFile(sharedFileData);
