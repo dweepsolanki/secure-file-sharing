@@ -29,10 +29,11 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
   const { toast } = useToast();
   const { shareFileMutation } = useFiles();
   
-  // Fetch users for sharing
-  const { data: users } = useQuery<User[]>({
-    queryKey: ["/api/users"],
+  // Fetch users for sharing using the dedicated endpoint
+  const { data: users, isError: usersError } = useQuery<User[]>({
+    queryKey: ["/api/users/for-sharing"],
     staleTime: 60000,
+    retry: 1,
   });
   
   useEffect(() => {
@@ -161,6 +162,10 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
           ) : searchTerm ? (
             <div className="text-center py-2 text-sm text-gray-500">
               No users found
+            </div>
+          ) : usersError ? (
+            <div className="text-center py-2 text-sm text-red-500">
+              Unable to load users. Please try again.
             </div>
           ) : null}
           

@@ -746,6 +746,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+  
+  // API to list users for file sharing (available to all authenticated users)
+  app.get("/api/users/for-sharing", isAuthenticated, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      const currentUserId = req.user!.id;
+      
+      // Filter out current user and return minimal information needed for sharing
+      const sharingUsers = users
+        .filter(user => user.id !== currentUserId) // Don't show current user
+        .map(user => ({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+        }));
+      
+      res.json(sharingUsers);
+    } catch (error) {
+      console.error("Error fetching users for sharing:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 
   app.put("/api/users/:id", isAdmin, async (req, res) => {
     try {
