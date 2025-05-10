@@ -36,12 +36,7 @@ export default function AuditLogsPage() {
     enabled: currentUser?.role === "admin" // Only run the query for admin users
   });
   
-  // Check if current user is admin
-  React.useEffect(() => {
-    if (currentUser && currentUser.role !== "admin") {
-      navigate("/");
-    }
-  }, [currentUser, navigate]);
+  // This admin check is already handled by the useEffect above
   
   // Filter logs based on search term and action filter
   const filteredLogs = logs?.filter(log => {

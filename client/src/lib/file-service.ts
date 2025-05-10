@@ -31,17 +31,37 @@ export async function uploadFile(
 export async function downloadFile(fileId: number, fileName: string): Promise<void> {
   try {
     // Request file download
+    // Create abort controller with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     const response = await fetch(`/api/files/${fileId}/download`, {
       credentials: "include",
+      signal: controller.signal
     });
+    
+    // Clear timeout after response received
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Download failed: ${errorText}`);
+      // Try to parse error message from JSON response if possible
+      try {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Download failed: ${response.statusText}`);
+      } catch (parseError) {
+        // If we can't parse JSON, just use the text
+        const errorText = await response.text();
+        throw new Error(`Download failed: ${errorText || response.statusText}`);
+      }
     }
 
     // Convert response to blob
     const blob = await response.blob();
+    
+    // Validate blob
+    if (blob.size === 0) {
+      throw new Error("Download failed: Empty file received");
+    }
 
     // Create download link
     const url = window.URL.createObjectURL(blob);
@@ -55,9 +75,19 @@ export async function downloadFile(fileId: number, fileName: string): Promise<vo
     // Clean up
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-  } catch (error) {
+    
+    return Promise.resolve();
+  } catch (error: any) {
     console.error("Error downloading file:", error);
-    throw error;
+    
+    // Check for specific types of errors
+    if (error.name === 'AbortError') {
+      throw new Error("Download timed out. The server took too long to respond.");
+    } else if (error.message?.includes('quantum') || error.message?.includes('Quantum')) {
+      throw new Error("Quantum encryption key error. Please ensure the quantum key is active.");
+    } else {
+      throw error;
+    }
   }
 }
 

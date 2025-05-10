@@ -203,38 +203,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
+      // For quantum and dual encryption, check if quantum key exists
+      if (file.encryptionType === "quantum" || file.encryptionType === "dual") {
+        const quantumKey = await storage.getActiveKeyByType("quantum");
+        if (!quantumKey) {
+          return res.status(400).json({ 
+            message: "Required quantum encryption key is not available. Please contact your administrator."
+          });
+        }
+      }
+      
       // Read encrypted file
       const encryptedData = await fs.promises.readFile(file.path);
       
-      // Decrypt file
-      const decryptedData = await decrypt(
-        encryptedData, 
-        file.encryptionType, 
-        file.encryptedKey!,
-        file.iv!
-      );
+      // Verify data exists and is valid
+      if (!encryptedData || encryptedData.length === 0) {
+        return res.status(400).json({ message: "File data is missing or corrupted" });
+      }
       
-      // Update last accessed time
-      await storage.updateFile(fileId, { lastAccessed: new Date() });
+      // Verify encryption parameters
+      if (!file.encryptedKey || !file.iv) {
+        return res.status(400).json({ 
+          message: "File encryption metadata is missing. Unable to decrypt file."
+        });
+      }
       
-      // Log file download
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "DOWNLOAD",
-        resource: "file",
-        resourceId: fileId.toString(),
-        details: { fileName: file.name },
-        ipAddress: req.ip
-      });
-      
-      // Set headers for download
-      res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-      res.setHeader('Content-Type', file.type);
-      
-      res.send(decryptedData);
-    } catch (error) {
+      try {
+        // Decrypt file
+        const decryptedData = await decrypt(
+          encryptedData, 
+          file.encryptionType, 
+          file.encryptedKey,
+          file.iv
+        );
+        
+        // Update last accessed time
+        await storage.updateFile(fileId, { lastAccessed: new Date() });
+        
+        // Log file download
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: "DOWNLOAD",
+          resource: "file",
+          resourceId: fileId.toString(),
+          details: { fileName: file.name },
+          ipAddress: req.ip
+        });
+        
+        // Set headers for download
+        res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+        res.setHeader('Content-Type', file.type);
+        
+        res.send(decryptedData);
+      } catch (decryptError: any) {
+        console.error("Decryption error:", decryptError);
+        
+        // Check for quantum-specific errors
+        if (decryptError.message?.includes('quantum') || 
+            decryptError.message?.includes('Kyber') ||
+            file.encryptionType === "quantum" || 
+            file.encryptionType === "dual") {
+          return res.status(400).json({ 
+            message: "Quantum decryption failed. This may be due to a rotated or missing quantum key."
+          });
+        }
+        
+        // Generic decryption error
+        return res.status(400).json({ 
+          message: "File decryption failed. The file may be corrupted or encryption keys may be missing."
+        });
+      }
+    } catch (error: any) {
       console.error("Error downloading file:", error);
-      res.status(500).json({ message: "Internal server error" });
+      
+      // Return a more user-friendly error message
+      if (error.code === 'ENOENT') {
+        return res.status(404).json({ message: "File data not found on server" });
+      }
+      
+      res.status(500).json({ message: "Internal server error during file download" });
     }
   });
 
