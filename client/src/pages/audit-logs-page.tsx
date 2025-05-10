@@ -18,6 +18,13 @@ export default function AuditLogsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("all");
   
+  // Redirect non-admin users
+  React.useEffect(() => {
+    if (currentUser && currentUser.role !== "admin") {
+      navigate("/dashboard");
+    }
+  }, [currentUser, navigate]);
+  
   // Fetch audit logs
   const {
     data: logs,
@@ -26,6 +33,7 @@ export default function AuditLogsPage() {
   } = useQuery<AuditLog[]>({
     queryKey: ["/api/logs"],
     refetchInterval: 60000, // Refresh every minute
+    enabled: currentUser?.role === "admin" // Only run the query for admin users
   });
   
   // Check if current user is admin

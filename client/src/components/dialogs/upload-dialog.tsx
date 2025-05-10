@@ -1,13 +1,15 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useFiles } from "@/hooks/use-files";
-import { Database, Upload, Shield } from "lucide-react";
+import { useKeys } from "@/hooks/use-keys";
+import { Database, Upload, Shield, AlertCircle } from "lucide-react";
 
 interface UploadDialogProps {
   open: boolean;
@@ -20,9 +22,11 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
   const [encryptionType, setEncryptionType] = useState<string>("aes");
   const [isSensitive, setIsSensitive] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [missingQuantumKey, setMissingQuantumKey] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { uploadFileMutation } = useFiles();
+  const { getActiveQuantumKey, ensureQuantumKey, isLoadingKeys, keys } = useKeys();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -57,7 +61,7 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
     }
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!selectedFile) {
       toast({
         title: "No file selected",
@@ -65,6 +69,30 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
         variant: "destructive"
       });
       return;
+    }
+    
+    // If encryption type is quantum or dual, or if sensitive flag is set,
+    // ensure a quantum key exists before proceeding
+    if (encryptionType === "quantum" || encryptionType === "dual" || isSensitive) {
+      const quantumKey = getActiveQuantumKey();
+      
+      if (!quantumKey) {
+        try {
+          // Auto-generate a quantum key if missing
+          await ensureQuantumKey();
+          toast({
+            title: "Quantum key created",
+            description: "A quantum-resistant encryption key has been automatically generated.",
+          });
+        } catch (error) {
+          toast({
+            title: "Encryption failed",
+            description: "Could not generate the required quantum encryption key.",
+            variant: "destructive"
+          });
+          return;
+        }
+      }
     }
 
     uploadFileMutation.mutate(
@@ -85,8 +113,36 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
     );
   };
 
+  // Check if a quantum key exists
+  useEffect(() => {
+    if (keys && (encryptionType === "quantum" || encryptionType === "dual" || isSensitive)) {
+      const quantumKey = getActiveQuantumKey();
+      setMissingQuantumKey(!quantumKey);
+    } else {
+      setMissingQuantumKey(false);
+    }
+  }, [keys, encryptionType, isSensitive, getActiveQuantumKey]);
+
   const handleClickUploadArea = () => {
     fileInputRef.current?.click();
+  };
+  
+  // Handle generating quantum key if needed
+  const handleGenerateQuantumKey = async () => {
+    try {
+      await ensureQuantumKey();
+      setMissingQuantumKey(false);
+      toast({
+        title: "Quantum key created",
+        description: "A quantum-resistant encryption key has been generated successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to generate quantum key",
+        description: "Please try again or contact your administrator.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -176,6 +232,24 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
             </div>
           </div>
         </div>
+        
+        {/* Quantum key warning */}
+        {missingQuantumKey && (
+          <Alert className="mt-4 bg-amber-50 text-amber-800 border-amber-300">
+            <AlertCircle className="h-5 w-5 text-amber-800" />
+            <AlertDescription className="flex flex-col space-y-2">
+              <p>A quantum encryption key is required for this operation but none exists.</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-fit border-amber-500 hover:bg-amber-100 text-amber-800"
+                onClick={handleGenerateQuantumKey}
+              >
+                <Shield className="mr-2 h-4 w-4" /> Generate Quantum Key
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         <DialogFooter className="sm:justify-between">
           <Button 
@@ -186,7 +260,7 @@ export function UploadDialog({ open, onOpenChange, onSuccess }: UploadDialogProp
           </Button>
           <Button 
             onClick={handleUpload}
-            disabled={!selectedFile || uploadFileMutation.isPending}
+            disabled={!selectedFile || uploadFileMutation.isPending || missingQuantumKey}
           >
             {uploadFileMutation.isPending ? "Uploading..." : "Upload and Encrypt"}
           </Button>
