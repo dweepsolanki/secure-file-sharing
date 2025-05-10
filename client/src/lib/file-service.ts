@@ -93,17 +93,27 @@ export async function downloadFile(fileId: number, fileName: string): Promise<vo
 
 export async function shareFile(
   fileId: number,
-  userId: number,
+  userId?: number,
   permission: string = "view",
   allowReshare: boolean = false,
-  expiresAt?: Date
+  expiresAt?: Date,
+  email?: string
 ): Promise<void> {
-  await apiRequest("POST", `/api/files/${fileId}/share`, {
-    userId,
+  // Determine if we're sharing with a user ID or email
+  const requestBody: any = {
     permission,
     allowReshare,
     expiresAt: expiresAt?.toISOString(),
-  });
+  };
+
+  // Add either userId or email to the request body
+  if (userId) {
+    requestBody.userId = userId;
+  } else if (email) {
+    requestBody.email = email;
+  }
+
+  await apiRequest("POST", `/api/files/${fileId}/share`, requestBody);
 }
 
 export async function deleteFile(fileId: number): Promise<void> {

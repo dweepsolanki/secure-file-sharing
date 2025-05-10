@@ -48,13 +48,24 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
     }
   }, [open]);
   
-  const filteredUsers = users?.filter(user => {
+  // Use email validation regex
+  const isValidEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+  
+  // Check if search term is a valid email that doesn't match any existing user
+  const isNewEmailShare = searchTerm && 
+    isValidEmail(searchTerm) && 
+    !users?.some(user => user.email.toLowerCase() === searchTerm.toLowerCase());
+  
+  // Only show filtered users if search term has at least 2 characters  
+  const filteredUsers = searchTerm.length >= 2 ? users?.filter(user => {
     const searchLower = searchTerm.toLowerCase();
     return (
       user.username.toLowerCase().includes(searchLower) ||
       user.email.toLowerCase().includes(searchLower)
     );
-  });
+  }) : [];
   
   const handleShare = () => {
     if (!file) {
@@ -68,13 +79,47 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
     
     if (!selectedUserId) {
       toast({
-        title: "No user selected",
-        description: "Please select a user to share with",
+        title: "No recipient selected",
+        description: "Please select a user or enter an email to share with",
         variant: "destructive"
       });
       return;
     }
     
+    // Handle sharing with new email address
+    if (selectedUserId === "new-email") {
+      if (!isValidEmail(searchTerm)) {
+        toast({
+          title: "Invalid email",
+          description: "Please enter a valid email address",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Share with email
+      shareFileMutation.mutate(
+        {
+          fileId: file.id,
+          email: searchTerm,
+          permission,
+          allowReshare,
+          expiresAt: hasExpiration && expiresAt ? new Date(expiresAt) : undefined
+        },
+        {
+          onSuccess: () => {
+            toast({
+              title: "File shared",
+              description: `Shared with ${searchTerm} successfully`,
+            });
+            onOpenChange(false);
+          }
+        }
+      );
+      return;
+    }
+    
+    // Handle sharing with existing user
     const parsedUserId = parseInt(selectedUserId);
     
     shareFileMutation.mutate(
@@ -119,31 +164,33 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
             />
           </div>
           
-          {searchTerm && filteredUsers && filteredUsers.length > 0 ? (
+          {searchTerm.length >= 2 ? (
             <div className="border rounded-md max-h-40 overflow-y-auto">
-              {filteredUsers.map(user => (
+              {/* Show option to invite by email if it's a valid email and not an existing user */}
+              {isNewEmailShare && (
                 <div 
-                  key={user.id}
-                  className={`flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer ${
-                    selectedUserId === user.id.toString() ? 'bg-primary-50' : ''
+                  className={`flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer border-b ${
+                    selectedUserId === "new-email" ? 'bg-primary-50' : ''
                   }`}
-                  onClick={() => setSelectedUserId(user.id.toString())}
+                  onClick={() => {
+                    setSelectedUserId("new-email");
+                  }}
                 >
                   <div className="flex items-center">
-                    <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
-                      <UserIcon className="h-4 w-4" />
+                    <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-500">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                     </div>
                     <div className="ml-3">
-                      <p className="text-sm font-medium text-gray-900">{user.username}</p>
-                      <p className="text-xs text-gray-500">{user.email}</p>
+                      <p className="text-sm font-medium text-gray-900">Share with new email</p>
+                      <p className="text-xs text-blue-500">{searchTerm}</p>
                     </div>
                   </div>
-                  {selectedUserId === user.id.toString() && (
+                  {selectedUserId === "new-email" && (
                     <div className="w-16">
                       <Select 
                         value={permission}
                         onValueChange={setPermission}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
                       >
                         <SelectTrigger className="h-7 text-xs">
                           <SelectValue />
@@ -157,17 +204,66 @@ export function ShareDialog({ open, onOpenChange, file }: ShareDialogProps) {
                     </div>
                   )}
                 </div>
-              ))}
+              )}
+              
+              {/* Existing users that match search */}
+              {filteredUsers && filteredUsers.length > 0 ? (
+                filteredUsers.map(user => (
+                  <div 
+                    key={user.id}
+                    className={`flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer ${
+                      selectedUserId === user.id.toString() ? 'bg-primary-50' : ''
+                    }`}
+                    onClick={() => setSelectedUserId(user.id.toString())}
+                  >
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
+                        <UserIcon className="h-4 w-4" />
+                      </div>
+                      <div className="ml-3">
+                        <p className="text-sm font-medium text-gray-900">{user.username}</p>
+                        <p className="text-xs text-gray-500">{user.email}</p>
+                      </div>
+                    </div>
+                    {selectedUserId === user.id.toString() && (
+                      <div className="w-16">
+                        <Select 
+                          value={permission}
+                          onValueChange={setPermission}
+                          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="view">View only</SelectItem>
+                            <SelectItem value="edit">Edit</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : !isNewEmailShare ? (
+                <div className="text-center py-2 text-sm text-gray-500">
+                  No users found
+                </div>
+              ) : null}
             </div>
-          ) : searchTerm ? (
+          ) : searchTerm.length > 0 ? (
             <div className="text-center py-2 text-sm text-gray-500">
-              No users found
+              Type at least 2 characters to search users or enter a valid email
             </div>
           ) : usersError ? (
             <div className="text-center py-2 text-sm text-red-500">
               Unable to load users. Please try again.
             </div>
-          ) : null}
+          ) : (
+            <div className="text-center py-2 text-sm text-gray-500">
+              Type a name, username or email to share with
+            </div>
+          )}
           
           <div className="space-y-4 pt-2">
             {selectedUserId && (
