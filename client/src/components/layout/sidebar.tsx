@@ -137,17 +137,16 @@ interface NavLinkProps {
 
 function NavLink({ href, active, icon, label, className }: NavLinkProps) {
   return (
-    <Link href={href}>
-      <a
-        className={cn(
-          "flex items-center w-full px-4 py-2 text-left rounded-md",
-          active ? "bg-primary-50 text-primary-600" : "text-gray-700 hover:bg-gray-100",
-          className
-        )}
-      >
-        <span className="h-5 w-5 mr-3">{icon}</span>
-        {label}
-      </a>
+    <Link 
+      href={href}
+      className={cn(
+        "flex items-center w-full px-4 py-2 text-left rounded-md",
+        active ? "bg-primary-50 text-primary-600" : "text-gray-700 hover:bg-gray-100",
+        className
+      )}
+    >
+      <span className="h-5 w-5 mr-3">{icon}</span>
+      {label}
     </Link>
   );
 }

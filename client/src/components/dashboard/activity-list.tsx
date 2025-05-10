@@ -41,10 +41,10 @@ export function ActivityList({ files, logs, users, limit = 3 }: ActivityListProp
                         {file.name}
                       </p>
                       <div className="mt-1 flex text-sm text-gray-500">
-                        <p className="truncate">
+                        <span className="truncate">
                           Encrypted with <EncryptBadge type={file.encryptionType} />
-                        </p>
-                        <p className="ml-1 flex-shrink-0">· {formatBytes(file.size)}</p>
+                        </span>
+                        <span className="ml-1 flex-shrink-0">· {formatBytes(file.size)}</span>
                       </div>
                     </div>
                     <div className="mt-4 flex-shrink-0 sm:mt-0">
