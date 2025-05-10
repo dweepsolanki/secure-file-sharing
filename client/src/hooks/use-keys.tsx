@@ -2,6 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { EncryptionKey } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useCallback } from "react";
 
 export function useKeys() {
   const { toast } = useToast();
@@ -59,6 +60,40 @@ export function useKeys() {
       });
     },
   });
+  
+  // Auto-generate quantum key if none exists
+  const ensureQuantumKeyMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/keys/ensure-quantum"),
+    onSuccess: async (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/keys"] });
+      if (!data.keyExists) {
+        toast({
+          title: "Quantum key created",
+          description: "A quantum-resistant encryption key has been automatically generated.",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Quantum key setup failed",
+        description: error.message || "An error occurred during quantum key setup",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Helper function to ensure a quantum key exists before using quantum encryption
+  const ensureQuantumKey = useCallback(async () => {
+    const quantumKey = keys?.find(k => k.keyType === "quantum" && k.isActive);
+    
+    if (!quantumKey) {
+      await ensureQuantumKeyMutation.mutateAsync();
+      await refetchKeys();
+      return true;
+    }
+    
+    return true;
+  }, [keys, ensureQuantumKeyMutation, refetchKeys]);
 
   return {
     keys,
@@ -67,6 +102,8 @@ export function useKeys() {
     refetchKeys,
     generateKeyMutation,
     rotateKeyMutation,
+    ensureQuantumKeyMutation,
+    ensureQuantumKey,
     // Helper functions
     getActiveAesKey: () => keys?.find(k => k.keyType === "aes" && k.isActive),
     getActiveQuantumKey: () => keys?.find(k => k.keyType === "quantum" && k.isActive),
