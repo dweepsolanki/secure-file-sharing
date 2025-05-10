@@ -86,13 +86,15 @@ export function useFiles() {
       permission,
       allowReshare,
       expiresAt,
+      email,
     }: {
       fileId: number;
-      userId: number;
+      userId?: number;
       permission: string;
       allowReshare: boolean;
       expiresAt?: Date;
-    }) => shareFile(fileId, userId, permission, allowReshare, expiresAt),
+      email?: string;
+    }) => shareFile(fileId, userId, permission, allowReshare, expiresAt, email),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/files"] });
       toast({

@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { setupWebSockets } from "./websocket";
+import { setupWebSockets, broadcastFileShare } from "./websocket";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -441,17 +441,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Validate share data
-      const { userId, permission, allowReshare, expiresAt } = req.body;
+      const { userId, email, permission, allowReshare, expiresAt } = req.body;
       
-      // Check if user exists
-      const targetUser = await storage.getUser(parseInt(userId));
-      if (!targetUser) {
-        return res.status(404).json({ message: "User not found" });
+      let targetUser;
+      let targetUserId;
+      
+      // Support sharing by email or userId
+      if (email) {
+        // Check if user with this email exists
+        targetUser = await storage.getUserByEmail(email);
+        
+        if (!targetUser) {
+          // In a real application, we might want to invite the user by email here
+          return res.status(404).json({ 
+            message: "No user found with this email. They must register first."
+          });
+        }
+        
+        targetUserId = targetUser.id;
+      } else if (userId) {
+        // Traditional user ID-based sharing
+        targetUser = await storage.getUser(parseInt(userId));
+        if (!targetUser) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        
+        targetUserId = parseInt(userId);
+      } else {
+        return res.status(400).json({ message: "Either userId or email must be provided" });
+      }
+      
+      // Don't allow sharing with yourself
+      if (targetUserId === req.user!.id) {
+        return res.status(400).json({ message: "You cannot share a file with yourself" });
       }
       
       // Check if already shared with this user
       const existingShare = (await storage.getSharedFilesByFileId(fileId))
-        .find(sf => sf.userId === parseInt(userId));
+        .find(sf => sf.userId === targetUserId);
       
       if (existingShare) {
         return res.status(400).json({ message: "File already shared with this user" });
@@ -460,7 +487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create shared file record with proper defaults
       const sharedFileData = insertSharedFileSchema.parse({
         fileId,
-        userId: parseInt(userId),
+        userId: targetUserId, // Use the resolved targetUserId
         permission: permission || 'view', // Default to view permission if not specified
         allowReshare: allowReshare === true,
         expiresAt: expiresAt ? new Date(expiresAt) : null
@@ -476,12 +503,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resourceId: fileId.toString(),
         details: { 
           fileName: file.name,
-          targetUserId: userId,
+          targetUserId: targetUserId,
+          targetEmail: email || targetUser.email, // Include the email for better audit logging
           permission
         },
         ipAddress: req.ip
       });
       
+      // Update websocket with the new shared file info
+      broadcastFileShare(fileId, targetUserId);
+
       res.status(201).json(sharedFile);
     } catch (error) {
       console.error("Error sharing file:", error);
